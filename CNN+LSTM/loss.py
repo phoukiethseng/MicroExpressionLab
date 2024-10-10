@@ -10,8 +10,8 @@ def half_min_distance(feat_means):
         # Exclude the current class feature mean
         excluded_feat_means = torch.concat((feat_means[:i], feat_means[i+1:]))
         diff =  excluded_feat_means - feat_means[i]
-        d = torch.linalg.norm(diff, dim=1, dtype=torch.float64)
-        half_min_distance[i] = d.detach().min()
+        d = torch.linalg.norm(diff, dim=1, dtype=torch.float64, ord=2)
+        half_min_distance[i] = d.detach().min() / 2
     return half_min_distance
 
 def loss_function(gt_exp_class, gt_exp_state, pred_exp_class, pred_exp_state, class_feat_mean, sample_feat, half_min_distance):
@@ -32,7 +32,7 @@ def loss_function(gt_exp_class, gt_exp_state, pred_exp_class, pred_exp_state, cl
     # E2 Intra class variation
     sample_class_feat_mean = torch.matmul(gt_exp_class.float(), class_feat_mean) # We do this so that each sample feature of class c will be subtracted by corresponding feature mean of the same class c
     sample_hmd = torch.matmul(gt_exp_class.float(), half_min_distance) # Same thing with half minimum distance, each sample will operate with its corresponding HMD of the same class as sample ground truth class
-    d = torch.linalg.norm(sample_feat - sample_class_feat_mean, dim=1, dtype=torch.float64).pow(2) - sample_hmd.pow(2)
+    d = torch.linalg.norm(sample_feat - sample_class_feat_mean, dim=1, dtype=torch.float64, ord=2).pow(2) - sample_hmd.pow(2)
     beta = 1 # Sharpness parameter
     E2 = softplus(d).sum() / 2
     # TODO: Debug E2 value too big
