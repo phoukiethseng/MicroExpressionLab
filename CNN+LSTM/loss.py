@@ -41,16 +41,16 @@ def loss_function(gt_exp_class, gt_exp_state, pred_exp_class, pred_exp_state, cl
 
     # E4 Intra Expression state variation
     E4 = 0
-    # class_index = torch.matmul(gt_exp_class.float(), torch.arange(0, EXP_CLASS_SIZE, requires_grad=False, dtype=torch.float32))
-    # for k in range(EXP_CLASS_SIZE):
-    #     index = class_index == k
-    #     # Feature means of every expression state of class k
-    #     sample_class_k_state_feat_mean = torch.matmul(gt_exp_state[index, :].float(), class_state_feature_means[k, :, :])
-    #     d =torch.linalg.norm(sample_feat[index, :] - sample_class_k_state_feat_mean, dim=1, dtype=torch.float64, ord=2)
-    #     t = 1
-    #     e_k = softplus(d.pow(2) - (half_min_distance[k] / t).pow(2)).sum(dim=0)
-    #     E4 += e_k
-    # E4 /= 2
+    class_index = torch.matmul(gt_exp_class.float(), torch.arange(0, EXP_CLASS_SIZE, requires_grad=False, dtype=torch.float32))
+    for k in range(EXP_CLASS_SIZE):
+        index = class_index == k
+        # Feature means of every expression state of class k
+        sample_class_k_state_feat_mean = torch.matmul(gt_exp_state[index, :].float(), class_state_feature_means[k, :, :])
+        d =torch.linalg.norm(sample_feat[index, :] - sample_class_k_state_feat_mean, dim=1, dtype=torch.float64, ord=2)
+        t = 1
+        e_k = softplus(d.pow(2) - (half_min_distance[k] / t).pow(2)).sum(dim=0)
+        E4 += e_k
+    E4 /= 2
 
     return E1 + E2 + E3 + E4
 

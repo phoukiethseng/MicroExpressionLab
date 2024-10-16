@@ -7,6 +7,7 @@ from config import BATCH_SIZE, EPOCH, EXP_STATE_SIZE, EXP_CLASS_SIZE, LEARNING_R
 from loss import loss_function, half_min_distance
 from model import MicroExpressionCNN
 from datetime import datetime
+from torch.optim.lr_scheduler import *
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 worker_size = 6
@@ -18,31 +19,34 @@ def main():
     dataset = MicroExpressionDataset("D:\\CASME2\\label.csv", "D:\\CASME2")
     train_dataset, test_dataset = random_split(dataset, [0.85, 0.15], generator=torch.Generator(device=cuda))
     train_dataloader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True,
-                                  generator=torch.Generator(device=cuda), num_workers=worker_size)
+                                  generator=torch.Generator(device=cuda), num_workers=worker_size, pin_memory=True)
 
     epoch_dataloader_batch_size = 2000
     epoch_dataloader = DataLoader(train_dataset, batch_size=epoch_dataloader_batch_size, shuffle=False,
-                                  generator=torch.Generator(device=cuda), num_workers=worker_size)
+                                  generator=torch.Generator(device=cuda), num_workers=worker_size, pin_memory=True)
 
     model = MicroExpressionCNN(EXP_CLASS_SIZE, EXP_STATE_SIZE)
     model.train()
+
+    optimizer = torch.optim.SGD(model.parameters(), lr=LEARNING_RATE, momentum=0.9)
+    scheduler = ExponentialLR(optimizer, gamma=0.9)
 
     for epoch in range(EPOCH):
         print(f"Epoch {epoch + 1}\n_____________________________________")
         # TODO: Calculate Spatial Feature mean and Half Minimum Distance every epoch instead of every batch
         print(
-            'Calculating feature mean of Expression Class and State and Half-Minimum-Distance'
+            'Calculating feature mean of Expression Class and State and Half-Minimum-Distance '
             'between Feature mean at the start of epoch...')
         class_feature_means, class_state_feature_means = get_exp_class_feature_mean(model, epoch_dataloader,
                                                                                     batch_size=epoch_dataloader_batch_size)
         hmd = half_min_distance(class_feature_means)
         print('Done')
         print(f'half minimum distance = {hmd}\nfeature mean = {class_feature_means}')
-        train_loop(train_dataloader, model, class_feature_means, hmd, class_state_feature_means)
+        train_loop(train_dataloader, model, class_feature_means, hmd, class_state_feature_means, optimizer)
+        scheduler.step()
 
     # Save the model
     torch.save(model.state_dict(), f"D:\\CASME2\\{datetime.now().strftime('%Y-%m-%d_%H-%M')}.pt")
-
 
 def get_exp_class_feature_mean(model, dataloader, batch_size=128):
     class_feat_means = torch.zeros((EXP_CLASS_SIZE, 512), device=device, requires_grad=False)
@@ -52,6 +56,9 @@ def get_exp_class_feature_mean(model, dataloader, batch_size=128):
     b = torch.arange(0, EXP_STATE_SIZE, requires_grad=False, dtype=torch.float32, device=device)
 
     dataset_size = len(dataloader.dataset)
+
+    exp_class_feature_sample_count = 0
+    exp_class_state_feature_sample_count = 0
 
     for batch, (X, y_class, y_state) in enumerate(dataloader):
 
@@ -72,22 +79,23 @@ def get_exp_class_feature_mean(model, dataloader, batch_size=128):
         for k in range(EXP_CLASS_SIZE):
             class_k_index = gt_exp_class_index == k
             class_feat = feature[class_k_index, :]
-            class_feat_size = class_feat.size()[0]
+            exp_class_feature_sample_count += class_feat.size()[0]
             class_feat_means[k] += class_feat.sum(dim=0) / dataset_size
-            # TODO: calculate expression state feature mean
             for h in range(EXP_STATE_SIZE):
                 state_h_index = torch.logical_and(class_k_index, gt_exp_state_index)
                 class_state_feat = feature[state_h_index, :]
-                class_state_feat_size = class_state_feat.size()[0]
+                exp_class_state_feature_sample_count += class_state_feat.size()[0]
                 class_state_feat_means[k, h] += class_state_feat.sum(dim=0) / dataset_size
+
+        exp_class_feature_sample_count = (class_feat_means * dataset_size) / exp_class_feature_sample_count
+        exp_class_state_feature_sample_count = (class_state_feat_means * dataset_size) / exp_class_state_feature_sample_count
 
     return class_feat_means, class_state_feat_means
 
 
-def train_loop(train_dataloader, model, class_feature_mean, hmd, class_state_feature_means):
+def train_loop(train_dataloader, model, class_feature_mean, hmd, class_state_feature_means, optimizer):
     size = len(train_dataloader.dataset)
 
-    optimizer = torch.optim.SGD(model.parameters(), lr=LEARNING_RATE, momentum=0.9)
     for batch, (X, y_class, y_state) in enumerate(train_dataloader):
 
         # Move to GPU
