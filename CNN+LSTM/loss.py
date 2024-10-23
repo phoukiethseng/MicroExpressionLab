@@ -1,5 +1,5 @@
 import torch
-from model import MicroExpressionCNN
+from model.cnn import MicroExpressionCNN
 from config import *
 
 softplus = torch.nn.Softplus() # Smoothed approximation of ReLU
@@ -14,7 +14,7 @@ def half_min_distance(feat_means):
         half_min_distance[i] = d.detach().min() / 2
     return half_min_distance
 
-def loss_function(gt_exp_class, gt_exp_state, pred_exp_class, pred_exp_state, class_feature_means, class_state_feature_means, sample_feat, half_min_distance):
+def cnn_loss_function(gt_exp_class, gt_exp_state, pred_exp_class, pred_exp_state, class_feature_means, class_state_feature_means, sample_feat, half_min_distance):
     """
 
     :param half_min_distance: half_min_distance[i] is half distance between feature mean i and closest feature mean
@@ -54,7 +54,7 @@ def loss_function(gt_exp_class, gt_exp_state, pred_exp_class, pred_exp_state, cl
 
     return E1 + E2 + E3 + E4
 
-def test_loss_function():
+def test_cnn_loss_function():
 
     # Generate ground truth label for both expression class and expression state, both represented as indicator vector, ex: ExpressionClass(0,0,0,1,0,0,0) ExpressionState(1,0,0,0,0)
     gt_exp_class = torch.zeros((BATCH_SIZE, EXP_CLASS_SIZE), dtype=torch.int)
@@ -81,7 +81,7 @@ def test_loss_function():
 
     hmd = half_min_distance(feat_means)
 
-    loss = loss_function(gt_exp_class, gt_exp_state, pred_exp_class, pred_exp_state, feat_means, sample_feat, hmd)
+    loss = cnn_loss_function(gt_exp_class, gt_exp_state, pred_exp_class, pred_exp_state, feat_means, sample_feat, hmd)
 
     print(f'sample_feat = {sample_feat}')
     print(f'pred_exp_class = {pred_exp_class}')

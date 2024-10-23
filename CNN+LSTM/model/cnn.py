@@ -1,4 +1,5 @@
 import torch
+from calflops import calculate_flops
 
 class MicroExpressionCNN(torch.nn.Module):
     def __init__(self, exp_class_size, exp_state_size):
@@ -42,7 +43,6 @@ class MicroExpressionCNN(torch.nn.Module):
             torch.nn.Softmax(dim=1),
         )
 
-
     def forward(self, x):
         x = self.conv_layer(x)
         x = self.fc_layer(x)
@@ -52,8 +52,17 @@ class MicroExpressionCNN(torch.nn.Module):
         return x, exp_class, exp_state
 
 def test_MicroExpressionCNN():
-    model = MicroExpressionCNN()
+    model = MicroExpressionCNN(exp_class_size=7, exp_state_size=5)
     x = torch.rand((2, 3, 64, 64))
     feat, exp_class, exp_state = model(x)
     print(f'\nShape: feat = {feat.shape}, exp_class = {exp_class.shape}, exp_state = {exp_state.shape}')
     print(f'Output: {exp_class}, {exp_state}')
+
+    print("-----------------Model computation efficiency-----------------")
+    batch_size = 1
+    input_shape = (batch_size, 3, 64, 64)
+    flops, macs, params = calculate_flops(model,
+                            input_shape=input_shape,
+                            output_as_string=False,
+                            output_precision=4)
+    print(f'FLOPS: {flops}, MACS: {macs}, params: {params}')
