@@ -1,30 +1,23 @@
-import os
-
 from dataset import MicroExpressionDataset
 import torch
 from torch.utils.data import DataLoader, random_split
-from config import BATCH_SIZE, EPOCH, EXP_STATE_SIZE, EXP_CLASS_SIZE, LEARNING_RATE
 from loss import cnn_loss_function, half_min_distance
 from model.cnn import MicroExpressionCNN
-from datetime import datetime
 from torch.optim.lr_scheduler import *
 from torcheval.metrics import MulticlassAUROC
 
-DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu') # Default to use to CUDA GPU compute if possible
-WORKER_SIZE = 6 # Number of worker used to load dataset from disk, recommended default to CPU core count
+from utils.config import *
+from utils.model import save_model, save_metrics
 
-# Configuration Variables defined here
-DATASET_PATH_PREFIX = os.environ.get("DATASET_PATH_PREFIX","D:\\CASME2") # Location to dataset and its label files
-OUTPUT_PATH_PREFIX = os.environ.get("DATASET_PATH_PREFIX","D:\\CASME2_OUTPUT") # Location to save trained model params and metrics
 
 def main():
-    torch.set_default_device(DEVICE) # Default to CUDA Tensor if GPU compute is available, otherwise use CPU Tensor
-    dataset = MicroExpressionDataset(os.path.join(DATASET_PATH_PREFIX,"label.csv"), DATASET_PATH_PREFIX)
+    torch.set_default_device(DEVICE)  # Default to CUDA Tensor if GPU compute is available, otherwise use CPU Tensor
+    dataset = MicroExpressionDataset(os.path.join(DATASET_PATH_PREFIX, "label.csv"), DATASET_PATH_PREFIX)
     train_dataset, test_dataset = random_split(dataset, [0.85, 0.15], generator=torch.Generator(device=DEVICE))
     train_dataloader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True,
                                   generator=torch.Generator(device=DEVICE), num_workers=WORKER_SIZE, pin_memory=True)
     test_dataloader = DataLoader(test_dataset, batch_size=BATCH_SIZE, shuffle=True,
-                                  generator=torch.Generator(device=DEVICE), num_workers=WORKER_SIZE, pin_memory=True)
+                                 generator=torch.Generator(device=DEVICE), num_workers=WORKER_SIZE, pin_memory=True)
 
     # This dataloader is used to calculate the class and state feature means and half minimum distance across the entire dataset
     epoch_dataloader_batch_size = 2000
@@ -51,33 +44,29 @@ def main():
         scheduler.step()
 
     # Save the model
-    torch.save(model.state_dict(), os.path.join(OUTPUT_PATH_PREFIX, "trained", f"{datetime.now().strftime('%Y-%m-%d_%H-%M')}.pt"))
+    save_model(model, model_name='cnn')
 
     # Compute Area Under ROC
     exp_class_AUC = MulticlassAUROC(num_classes=EXP_CLASS_SIZE, average=None, device=DEVICE)
     exp_state_AUC = MulticlassAUROC(num_classes=EXP_STATE_SIZE, average=None, device=DEVICE)
 
-    model.eval()
-    for batch, (X, y_class, y_state) in enumerate(test_dataloader):
-        X = X.to(DEVICE)
-        y_class = y_class.to(DEVICE)
-        y_state = y_state.to(DEVICE)
-
-        # Convert label from one-hot-encoded to categorical value
-        y_class = y_class.argmax(dim=1) + 1
-        y_state = y_state.argmax(dim=1) + 1
-
-        feature, pred_class, pred_state = model(X.float())
+    def compute_metric_callback(y_class, y_state, pred_class, pred_state):
+        # Convert from one hot encoded to class index
+        y_class = y_class.argmax(dim=1, keepdim=False)
+        y_state = y_state.argmax(dim=1, keepdim=False)
 
         exp_class_AUC.update(pred_class, y_class)
         exp_state_AUC.update(pred_state, y_state)
 
-    # Save AUC metrics
-    torch.save(exp_class_AUC.state_dict(), os.path.join(OUTPUT_PATH_PREFIX, "metrics", f"expression-class-AUC-{datetime.now().strftime('%Y-%m-%d_%H-%M')}.pt"))
-    torch.save(exp_state_AUC.state_dict(), os.path.join(OUTPUT_PATH_PREFIX, "metrics", f"expression-state-AUC-{datetime.now().strftime('%Y-%m-%d_%H-%M')}.pt"))
+    model.eval()
+    test_loop(model, test_dataloader, compute_metric_callback)
 
-    print(f"Expression class AUC: {exp_class_AUC.compute()}")
-    print(f"Expression state AUC: {exp_state_AUC.compute()}")
+    # Save metrics
+    save_metrics(exp_class_AUC, "exp_class_auc", 'cnn')
+    save_metrics(exp_state_AUC, "exp_state_auc", 'cnn')
+
+    print(f"Expression Class AUC: {exp_class_AUC.compute()}")
+    print(f"Expression State AUC: {exp_state_AUC.compute()}")
 
 
 def get_exp_class_feature_mean(model, dataloader, batch_size=128):
@@ -121,9 +110,11 @@ def get_exp_class_feature_mean(model, dataloader, batch_size=128):
                 class_state_feat_means[k, h] += class_state_feat.sum(dim=0) / dataset_size
 
         exp_class_feature_sample_count = (class_feat_means * dataset_size) / exp_class_feature_sample_count
-        exp_class_state_feature_sample_count = (class_state_feat_means * dataset_size) / exp_class_state_feature_sample_count
+        exp_class_state_feature_sample_count = (
+                                                       class_state_feat_means * dataset_size) / exp_class_state_feature_sample_count
 
     return class_feat_means, class_state_feat_means
+
 
 def train_loop(train_dataloader, model, class_feature_mean, hmd, class_state_feature_means, optimizer):
     size = len(train_dataloader.dataset)
@@ -139,7 +130,8 @@ def train_loop(train_dataloader, model, class_feature_mean, hmd, class_state_fea
         feat, pred_class, pred_state = model(X.float())
 
         # Calculate loss
-        loss = cnn_loss_function(y_class, y_state, pred_class, pred_state, class_feature_mean, class_state_feature_means,
+        loss = cnn_loss_function(y_class, y_state, pred_class, pred_state, class_feature_mean,
+                                 class_state_feature_means,
                                  feat, hmd)
 
         # Backpropagation
@@ -155,6 +147,20 @@ def train_loop(train_dataloader, model, class_feature_mean, hmd, class_state_fea
         if batch % 10 == 0:
             loss, current = loss.item(), batch * BATCH_SIZE + len(X)
             print(f"loss: {loss:>7f}  [{current:>5d}/{size:>5d}]")
+
+
+def test_loop(model, test_loader, compute_metric_callbacks):
+    with torch.no_grad():
+        for batch, (X, y_class, y_state) in enumerate(test_loader):
+            # Move to GPU
+            X = X.to(DEVICE)
+            y_class = y_class.to(DEVICE)
+            y_state = y_state.to(DEVICE)
+
+            # Compute expression class and state prediction along with spatial feature vector
+            feat, pred_class, pred_state = model(X.float())
+
+            compute_metric_callbacks(y_class, y_state, pred_class, pred_state)
 
 
 if __name__ == '__main__':

@@ -1,8 +1,9 @@
 import torch
 from model.cnn import MicroExpressionCNN
-from config import *
+from utils.config import *
 
 softplus = torch.nn.Softplus() # Smoothed approximation of ReLU
+cross_entropy_loss = torch.nn.CrossEntropyLoss(reduction='sum')
 
 def half_min_distance(feat_means):
     half_min_distance = torch.zeros(EXP_CLASS_SIZE)
@@ -16,6 +17,7 @@ def half_min_distance(feat_means):
 
 def cnn_loss_function(gt_exp_class, gt_exp_state, pred_exp_class, pred_exp_state, class_feature_means, class_state_feature_means, sample_feat, half_min_distance):
     """
+    Custom loss function for our MicroExpressionCNN model
 
     :param half_min_distance: half_min_distance[i] is half distance between feature mean i and closest feature mean
     :param sample_feat: Extracted feature from last fully connected layer, has shape of (batch_size, feature_size)
@@ -53,6 +55,11 @@ def cnn_loss_function(gt_exp_class, gt_exp_state, pred_exp_class, pred_exp_state
     E4 /= 2
 
     return E1 + E2 + E3 + E4
+
+def lstm_loss_function(gt_exp_class, pred_exp_class):
+    assert gt_exp_class.shape[1] == 1, "Ground truth should be index of expression class [0, EXP_CLASS_SIZE)"
+
+    return cross_entropy_loss(pred_exp_class, gt_exp_class)
 
 def test_cnn_loss_function():
 

@@ -1,1 +1,4 @@
-./test.py
+/output/trained/*
+/output/metrics/*
+/test/
+test.py

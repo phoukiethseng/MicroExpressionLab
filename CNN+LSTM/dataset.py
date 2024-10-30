@@ -4,7 +4,7 @@ import torch
 from torch.utils.data import Dataset
 from torchvision.io import read_image
 from torchvision import transforms
-from config import EXP_STATE_SIZE, EXP_CLASS_SIZE
+from utils.config import EXP_STATE_SIZE, EXP_CLASS_SIZE
 
 class MicroExpressionDataset(Dataset):
     def __init__(self, label_file_path, dataset_path):
