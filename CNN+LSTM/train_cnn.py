@@ -1,4 +1,4 @@
-from dataset import MicroExpressionDataset
+from dataset import MicroExpressionAugmentedDataset
 import torch
 from torch.utils.data import DataLoader, random_split
 from loss import cnn_loss_function, half_min_distance
@@ -12,7 +12,7 @@ from utils.model import save_model, save_metrics
 
 def main():
     torch.set_default_device(DEVICE)  # Default to CUDA Tensor if GPU compute is available, otherwise use CPU Tensor
-    dataset = MicroExpressionDataset(os.path.join(DATASET_PATH_PREFIX, "label.csv"), DATASET_PATH_PREFIX)
+    dataset = MicroExpressionAugmentedDataset(os.path.join(DATASET_PATH_PREFIX, "label.csv"), DATASET_PATH_PREFIX)
     train_dataset, test_dataset = random_split(dataset, [0.85, 0.15], generator=torch.Generator(device=DEVICE))
     train_dataloader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True,
                                   generator=torch.Generator(device=DEVICE), num_workers=WORKER_SIZE, pin_memory=True)
@@ -27,7 +27,7 @@ def main():
     model = MicroExpressionCNN(EXP_CLASS_SIZE, EXP_STATE_SIZE)
     model.train()
 
-    optimizer = torch.optim.SGD(model.parameters(), lr=LEARNING_RATE, momentum=0.9)
+    optimizer = torch.optim.SGD(model.parameters(), lr=0.001, momentum=0.9)
     scheduler = ExponentialLR(optimizer, gamma=0.9)
 
     for epoch in range(EPOCH):
@@ -44,7 +44,7 @@ def main():
         scheduler.step()
 
     # Save the model
-    save_model(model, model_name='cnn')
+    save_model(model, model_name='cnn', type='cnn')
 
     # Compute Area Under ROC
     exp_class_AUC = MulticlassAUROC(num_classes=EXP_CLASS_SIZE, average=None, device=DEVICE)
